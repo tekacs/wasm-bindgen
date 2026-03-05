@@ -98,6 +98,11 @@ struct Args {
         help = "Enable abort handler even if building with panic=abort. Does nothing when panic=unwind."
     )]
     force_enable_abort_handler: bool,
+    #[arg(
+        long,
+        help = "Emit a JSON sidecar with wasm-bindgen metadata useful for hotpatch tooling"
+    )]
+    emit_hotpatch_metadata: bool,
     // The options below are deprecated. They're still parsed for backwards compatibility,
     // but we don't want to show them in `--help` to avoid distracting users.
     #[arg(long, hide = true)]
@@ -169,7 +174,8 @@ fn rmain(args: &Args) -> Result<(), Error> {
         .split_linked_modules(args.split_linked_modules)
         .reference_types(args.reference_types)
         .reset_state_function(args.generate_reset_state)
-        .force_enable_abort_handler(args.force_enable_abort_handler);
+        .force_enable_abort_handler(args.force_enable_abort_handler)
+        .emit_hotpatch_metadata(args.emit_hotpatch_metadata);
 
     if let Some(ref name) = args.no_modules_global {
         b.no_modules_global(name)?;

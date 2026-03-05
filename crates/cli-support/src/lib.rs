@@ -1,3 +1,4 @@
+use crate::hotpatch_metadata::HotpatchMetadata;
 use anyhow::{bail, Context, Error};
 use std::collections::{hash_map::Entry, BTreeMap, HashMap, HashSet};
 use std::env;
@@ -13,6 +14,7 @@ mod decode;
 mod descriptor;
 mod descriptors;
 mod externref;
+mod hotpatch_metadata;
 mod interpreter;
 mod intrinsic;
 mod js;
@@ -43,12 +45,14 @@ pub struct Bindgen {
     split_linked_modules: bool,
     generate_reset_state: bool,
     force_enable_abort_handler: bool,
+    emit_hotpatch_metadata: bool,
 }
 
 pub struct Output {
     module: walrus::Module,
     stem: String,
     generated: Generated,
+    hotpatch_metadata: Option<HotpatchMetadata>,
 }
 
 struct Generated {
@@ -118,6 +122,7 @@ impl Bindgen {
             split_linked_modules: false,
             generate_reset_state: false,
             force_enable_abort_handler: false,
+            emit_hotpatch_metadata: false,
         }
     }
 
@@ -310,6 +315,11 @@ impl Bindgen {
         self
     }
 
+    pub fn emit_hotpatch_metadata(&mut self, emit_hotpatch_metadata: bool) -> &mut Bindgen {
+        self.emit_hotpatch_metadata = emit_hotpatch_metadata;
+        self
+    }
+
     pub fn generate<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
         self.generate_output()?.emit(path.as_ref())
     }
@@ -437,7 +447,7 @@ impl Bindgen {
         // auxiliary section for all sorts of miscellaneous information and
         // features #[wasm_bindgen] supports that aren't covered by wasm
         // interface types.
-        wit::process(self, &mut module, programs, thread_count)?;
+        let (_, _, hotpatch_metadata) = wit::process(self, &mut module, programs, thread_count)?;
 
         // Now that we've got type information from the webidl processing pass,
         // touch up the output of rustc to insert externref shims where necessary.
@@ -528,6 +538,7 @@ impl Bindgen {
             module,
             stem: stem.to_string(),
             generated,
+            hotpatch_metadata: self.emit_hotpatch_metadata.then_some(hotpatch_metadata),
         })
     }
 
@@ -736,6 +747,15 @@ impl Output {
         let wasm_bytes = self.module.emit_wasm();
         fs::write(&wasm_path, wasm_bytes)
             .with_context(|| format!("failed to write `{}`", wasm_path.display()))?;
+
+        if let Some(hotpatch_metadata) = &self.hotpatch_metadata {
+            let metadata_path = out_dir
+                .join(&wasm_name)
+                .with_extension("hotpatch-metadata.json");
+            let metadata_json = serde_json::to_string_pretty(hotpatch_metadata)?;
+            fs::write(&metadata_path, metadata_json)
+                .with_context(|| format!("failed to write `{}`", metadata_path.display()))?;
+        }
 
         let gen = &self.generated;
 

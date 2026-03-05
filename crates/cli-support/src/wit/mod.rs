@@ -1,6 +1,7 @@
 use crate::decode::{ImportModule, LocalModule};
 use crate::descriptor::{Descriptor, Function};
 use crate::descriptors::WasmBindgenDescriptorsSection;
+use crate::hotpatch_metadata::{HotpatchCastMapping, HotpatchMetadata};
 use crate::intrinsic::Intrinsic;
 use crate::transforms::threads::ThreadCount;
 use crate::{decode, wasm_conventions, Bindgen, PLACEHOLDER_MODULE};
@@ -11,6 +12,7 @@ use walrus::ir::VisitorMut;
 use walrus::{ConstExpr, ElementItems, ExportId, FunctionId, ImportId, MemoryId, Module};
 use wasm_bindgen_shared::struct_function_export_name;
 
+mod hotpatch_metadata;
 mod incoming;
 mod nonstandard;
 mod outgoing;
@@ -40,6 +42,7 @@ struct Context<'a> {
     /// when wasm-ld ICF merges invoke functions for different closure types
     /// into the same export.
     export_adapter_sigs: HashMap<AdapterId, (Vec<Descriptor>, Descriptor, Option<Descriptor>)>,
+    metadata: HotpatchMetadata,
 }
 
 struct InstructionBuilder<'a, 'b> {
@@ -66,7 +69,7 @@ pub fn process(
     module: &mut Module,
     programs: Vec<decode::Program>,
     thread_count: Option<ThreadCount>,
-) -> Result<(NonstandardWitSectionId, WasmBindgenAuxId), Error> {
+) -> Result<(NonstandardWitSectionId, WasmBindgenAuxId, HotpatchMetadata), Error> {
     let mut cx = Context {
         adapters: Default::default(),
         aux: Default::default(),
@@ -83,6 +86,7 @@ pub fn process(
         support_start: bindgen.emit_start,
         linked_modules: bindgen.split_linked_modules,
         export_adapter_sigs: Default::default(),
+        metadata: HotpatchMetadata::new(),
     };
     cx.init()?;
 
@@ -170,9 +174,11 @@ pub fn process(
         }
     }
 
+    cx.finalize_hotpatch_metadata();
+
     let adapters = cx.module.customs.add(cx.adapters);
     let aux = cx.module.customs.add(cx.aux);
-    Ok((adapters, aux))
+    Ok((adapters, aux, cx.metadata))
 }
 
 impl<'a> Context<'a> {
@@ -271,6 +277,12 @@ impl<'a> Context<'a> {
             {
                 // Use the sort index for a deterministic import name.
                 let import_name = format!("__wbindgen_cast_{:016x}", idx + 1);
+                let mut original_function_names = Vec::new();
+                for id in &orig_func_ids {
+                    if let Some(name) = self.module.funcs.get(*id).name.as_ref() {
+                        original_function_names.push(name.clone());
+                    }
+                }
 
                 // Manufacture an import for this cast.
                 let ty = self.module.funcs.get(orig_func_ids[0]).ty();
@@ -278,11 +290,17 @@ impl<'a> Context<'a> {
                     self.module
                         .add_import_func(PLACEHOLDER_MODULE, &import_name, ty);
                 self.module.funcs.get_mut(import_func_id).name = Some(sig_comment.clone());
+                let signature_text = self.cast_signature(&signature);
                 let adapter_id =
                     self.import_adapter(import_id, signature, AdapterJsImportKind::Normal)?;
                 self.aux
                     .import_map
                     .insert(adapter_id, AuxImport::Cast { sig_comment });
+                self.metadata.cast_mappings.push(HotpatchCastMapping {
+                    generated_import_name: import_name,
+                    signature: signature_text,
+                    original_function_names,
+                });
 
                 // Mark all original functions for replacement with the new import.
                 duplicate_import_map
