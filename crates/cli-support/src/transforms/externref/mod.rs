@@ -47,6 +47,9 @@ pub struct Meta {
     pub alloc: Option<FunctionId>,
     pub drop: Option<FunctionId>,
     pub drop_slice: Option<FunctionId>,
+    /// Mapping from original import FunctionId to its i32-ABI shim FunctionId.
+    /// Used by hotpatch tooling to find the correct shim for each externref-transformed import.
+    pub import_shims: Vec<(FunctionId, FunctionId)>,
 }
 
 struct Transform<'a> {
@@ -207,7 +210,7 @@ impl Context {
         }
 
         // And run the transformation!
-        Transform {
+        let mut xform = Transform {
             cx: self,
             intrinsic_map: HashMap::new(),
             import_map: HashMap::new(),
@@ -217,14 +220,16 @@ impl Context {
             heap_alloc,
             heap_dealloc,
             stack_pointer,
-        }
-        .run(module)?;
+        };
+        xform.run(module)?;
+        let import_shims = xform.import_map.into_iter().collect();
 
         Ok(Meta {
             table,
             alloc: heap_alloc,
             drop: heap_dealloc,
             drop_slice,
+            import_shims,
         })
     }
 }

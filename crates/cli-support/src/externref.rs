@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use walrus::ElementItems;
 use walrus::{ir::Value, ConstExpr, ElementKind, Module};
 
-pub fn process(module: &mut Module) -> Result<()> {
+pub fn process(module: &mut Module) -> Result<Vec<(walrus::FunctionId, walrus::FunctionId)>> {
     let mut cfg = Context::new(module)?;
     let section = module
         .customs
@@ -106,7 +106,7 @@ pub fn process(module: &mut Module) -> Result<()> {
 
     module.customs.add(*aux);
 
-    Ok(())
+    Ok(meta.import_shims)
 }
 
 /// Adapts the `instrs` given which are an implementation of the import of `id`.

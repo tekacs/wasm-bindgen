@@ -46,6 +46,7 @@ pub struct Bindgen {
     generate_reset_state: bool,
     force_enable_abort_handler: bool,
     emit_hotpatch_metadata: bool,
+    keep_local_functions: bool,
 }
 
 pub struct Output {
@@ -123,6 +124,7 @@ impl Bindgen {
             generate_reset_state: false,
             force_enable_abort_handler: false,
             emit_hotpatch_metadata: false,
+            keep_local_functions: false,
         }
     }
 
@@ -320,6 +322,11 @@ impl Bindgen {
         self
     }
 
+    pub fn keep_local_functions(&mut self, keep: bool) -> &mut Bindgen {
+        self.keep_local_functions = keep;
+        self
+    }
+
     pub fn generate<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
         self.generate_output()?.emit(path.as_ref())
     }
@@ -447,7 +454,8 @@ impl Bindgen {
         // auxiliary section for all sorts of miscellaneous information and
         // features #[wasm_bindgen] supports that aren't covered by wasm
         // interface types.
-        let (_, _, hotpatch_metadata) = wit::process(self, &mut module, programs, thread_count)?;
+        let (_, _, mut hotpatch_metadata) =
+            wit::process(self, &mut module, programs, thread_count)?;
 
         // Now that we've got type information from the webidl processing pass,
         // touch up the output of rustc to insert externref shims where necessary.
@@ -458,8 +466,8 @@ impl Bindgen {
         // If the externref pass isn't necessary, then we blanket delete the
         // export of all our externref intrinsics which will get cleaned up in the
         // GC pass before JS generation.
-        if self.externref {
-            externref::process(&mut module)?;
+        let externref_import_shims = if self.externref {
+            externref::process(&mut module)?
         } else {
             let ids = module
                 .exports
@@ -475,7 +483,8 @@ impl Bindgen {
             // only support contiguous arrays of function references in element
             // segments.
             externref::force_contiguous_elements(&mut module)?;
-        }
+            vec![]
+        };
 
         // Using all of our metadata convert our module to a multi-value using
         // module if applicable.
@@ -498,10 +507,76 @@ impl Bindgen {
             generate_wasm_catch_wrappers(&mut module, self.force_enable_abort_handler)?;
         }
 
+        // Populate externref import shim mappings in the hotpatch metadata.
+        // Must happen before GC, since GC may delete the original import functions
+        // (callers were redirected to shims by rewrite_calls).
+        {
+            use crate::hotpatch_metadata::ExternrefShimMapping;
+            for (original, shim) in &externref_import_shims {
+                let import = module.imports.iter().find(|i| match i.kind {
+                    walrus::ImportKind::Function(f) => f == *original,
+                    _ => false,
+                });
+                if let Some(shim_name) = module.funcs.get(*shim).name.clone() {
+                    hotpatch_metadata
+                        .externref_import_shims
+                        .push(ExternrefShimMapping {
+                            import_module: import.map(|i| i.module.clone()).unwrap_or_default(),
+                            import_name: import.map(|i| i.name.clone()).unwrap_or_default(),
+                            original_func_name: module.funcs.get(*original).name.clone(),
+                            shim_func_name: shim_name,
+                        });
+                }
+            }
+        }
+
         // We've done a whole bunch of transformations to the Wasm module, many
         // of which leave "garbage" lying around, so let's prune out all our
         // unnecessary things here.
+        //
+        // When keep_local_functions is set (for hotpatch fat builds), we temporarily
+        // export non-bindgen local functions so GC treats them as roots. This keeps
+        // user code alive for future patches while still letting GC clean up dead
+        // imports, adapters, and bindgen descriptor/cast machinery.
+        let temp_exports = if self.keep_local_functions {
+            let local_ids: Vec<_> = module
+                .funcs
+                .iter()
+                .filter(|f| matches!(f.kind, walrus::FunctionKind::Local(_)))
+                .filter(|f| {
+                    !f.name.as_deref().is_some_and(|n| {
+                        // Exclude bindgen internal machinery (descriptors, casts)
+                        // — these reference __wbindgen_placeholder__ imports that
+                        // GC must clean up.
+                        // But whitelist wasm_bindgen::__rt (runtime functions patches need)
+                        // and externref shims (patches need these to bridge i32↔externref).
+                        let dominated_by_wasm_bindgen =
+                            n.contains("wasm_bindgen") && !n.contains("wasm_bindgen4__rt");
+                        let is_externref_shim = n.ends_with(" externref shim");
+                        (n.starts_with("__wbindgen")
+                            || n.starts_with("__wbg_")
+                            || n.contains("wbg_cast")
+                            || dominated_by_wasm_bindgen)
+                            && !is_externref_shim
+                    })
+                })
+                .map(|f| f.id())
+                .collect();
+            local_ids
+                .iter()
+                .map(|&id| {
+                    module
+                        .exports
+                        .add(&format!("__wbg_keep_{}", id.index()), id)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            vec![]
+        };
         gc_module_and_adapters(&mut module);
+        for id in temp_exports {
+            module.exports.delete(id);
+        }
 
         let stem = self.stem()?;
 

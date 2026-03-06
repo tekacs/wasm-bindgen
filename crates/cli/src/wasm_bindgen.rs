@@ -103,6 +103,11 @@ struct Args {
         help = "Emit a JSON sidecar with wasm-bindgen metadata useful for hotpatch tooling"
     )]
     emit_hotpatch_metadata: bool,
+    #[arg(
+        long,
+        help = "Keep all local functions alive through GC (useful for hotpatch fat builds)"
+    )]
+    keep_local_functions: bool,
     // The options below are deprecated. They're still parsed for backwards compatibility,
     // but we don't want to show them in `--help` to avoid distracting users.
     #[arg(long, hide = true)]
@@ -175,7 +180,8 @@ fn rmain(args: &Args) -> Result<(), Error> {
         .reference_types(args.reference_types)
         .reset_state_function(args.generate_reset_state)
         .force_enable_abort_handler(args.force_enable_abort_handler)
-        .emit_hotpatch_metadata(args.emit_hotpatch_metadata);
+        .emit_hotpatch_metadata(args.emit_hotpatch_metadata)
+        .keep_local_functions(args.keep_local_functions);
 
     if let Some(ref name) = args.no_modules_global {
         b.no_modules_global(name)?;
