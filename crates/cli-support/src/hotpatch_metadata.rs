@@ -5,6 +5,7 @@ pub(crate) struct HotpatchMetadata {
     pub cast_mappings: Vec<HotpatchCastMapping>,
     pub placeholder_import_mappings: Vec<HotpatchPlaceholderMapping>,
     pub externref_import_shims: Vec<ExternrefShimMapping>,
+    pub import_renames: Vec<ImportRename>,
 }
 
 impl HotpatchMetadata {
@@ -36,4 +37,10 @@ pub(crate) struct ExternrefShimMapping {
     pub import_name: String,
     pub original_func_name: Option<String>,
     pub shim_func_name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct ImportRename {
+    pub original_name: String,
+    pub final_name: String,
 }

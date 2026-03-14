@@ -530,6 +530,29 @@ impl Bindgen {
             }
         }
 
+        // Record any imports that were renamed (e.g. _unused suffix from the
+        // externref pass) so the hotpatch linker can map original→final names.
+        {
+            use crate::hotpatch_metadata::ImportRename;
+            let bindgen_names: std::collections::HashSet<&str> = hotpatch_metadata
+                .bindgen_symbol_set
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            for import in module.imports.iter() {
+                if let walrus::ImportKind::Function(_) = import.kind {
+                    if let Some(original) = import.name.strip_suffix("_unused") {
+                        if bindgen_names.contains(original) {
+                            hotpatch_metadata.import_renames.push(ImportRename {
+                                original_name: original.to_string(),
+                                final_name: import.name.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         // We've done a whole bunch of transformations to the Wasm module, many
         // of which leave "garbage" lying around, so let's prune out all our
         // unnecessary things here.
