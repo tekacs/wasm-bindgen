@@ -139,11 +139,11 @@ impl Task {
     }
 
     pub(crate) fn run(&self) {
-        let mut borrow = self.inner.borrow_mut();
-
-        // Wakeups can come in after a Future has finished and been destroyed,
-        // so handle this gracefully by just ignoring the request to run.
-        let inner = match borrow.as_mut() {
+        // Take the Inner out of the RefCell so the borrow is released before
+        // polling. This prevents "RefCell already borrowed" panics when polling
+        // triggers re-entrant code (e.g. wasm module instantiation calling JS
+        // callbacks that re-enter the executor).
+        let mut inner = match self.inner.borrow_mut().take() {
             Some(inner) => inner,
             None => return,
         };
@@ -160,7 +160,7 @@ impl Task {
             // satisfies MaybeUnwindSafe (required when panic=unwind). This is safe:
             // console.run's poll callback is not invoked inside a panic-catching context.
             Some(console) => {
-                let mut inner = core::panic::AssertUnwindSafe(inner);
+                let mut inner = core::panic::AssertUnwindSafe(&mut inner);
                 console.run(&mut move || inner.is_ready())
             }
             None => inner.is_ready(),
@@ -171,14 +171,10 @@ impl Task {
         #[cfg(not(debug_assertions))]
         let is_ready = inner.is_ready();
 
-        // If a future has finished (`Ready`) then clean up resources associated
-        // with the future ASAP. This ensures that we don't keep anything extra
-        // alive in-memory by accident. Our own struct, `Rc<Task>` won't
-        // actually go away until all wakers referencing us go away, which may
-        // take quite some time, so ensure that the heaviest of resources are
-        // released early.
-        if is_ready {
-            *borrow = None;
+        // If the future is not yet complete, put it back so it can be polled
+        // again on the next wakeup.
+        if !is_ready {
+            *self.inner.borrow_mut() = Some(inner);
         }
     }
 }
