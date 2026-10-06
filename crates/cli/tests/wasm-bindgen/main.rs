@@ -52,6 +52,14 @@ static REPO_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
 // Two projects sharing a name clobber each other when tests run in parallel.
 static PROJECT_NAMES: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
 
+// Keep dated nightly selections instead of silently switching compiler versions.
+fn nightly() -> String {
+    std::env::var("RUSTUP_TOOLCHAIN")
+        .ok()
+        .filter(|toolchain| toolchain.starts_with("nightly"))
+        .unwrap_or_else(|| "nightly".into())
+}
+
 struct Project {
     root: PathBuf,
     name: String,
@@ -320,7 +328,7 @@ fn wasi_target_has_no_placeholder_imports_panic_unwind() {
         );
     project
         .cargo_cmd
-        .env("RUSTUP_TOOLCHAIN", "nightly")
+        .env("RUSTUP_TOOLCHAIN", nightly())
         .env("RUSTFLAGS", "-Cpanic=unwind")
         .arg("-Zbuild-std=std,panic_unwind");
     let wasm = project.build().to_owned();
@@ -776,7 +784,7 @@ fn termination() {
     // termination detection requires panic=unwind and nightly build-std
     project
         .cargo_cmd
-        .env("RUSTUP_TOOLCHAIN", "nightly")
+        .env("RUSTUP_TOOLCHAIN", nightly())
         .env("RUSTFLAGS", "-Cpanic=unwind")
         .arg("-Zbuild-std=std,panic_unwind");
 
@@ -1056,7 +1064,7 @@ fn termination_reset_state() {
     // termination detection requires panic=unwind and nightly build-std
     project
         .cargo_cmd
-        .env("RUSTUP_TOOLCHAIN", "nightly")
+        .env("RUSTUP_TOOLCHAIN", nightly())
         .env("RUSTFLAGS", "-Cpanic=unwind")
         .arg("-Zbuild-std=std,panic_unwind");
 
@@ -1423,7 +1431,7 @@ fn run_abort_handler_test(
         // panic=unwind + nightly build-std required for EH catch wrappers
         project
             .cargo_cmd
-            .env("RUSTUP_TOOLCHAIN", "nightly")
+            .env("RUSTUP_TOOLCHAIN", nightly())
             .env("RUSTFLAGS", "-Cpanic=unwind")
             .arg("-Zbuild-std=std,panic_unwind");
     }
@@ -1647,7 +1655,7 @@ fn termination_reinit() {
 
     project
         .cargo_cmd
-        .env("RUSTUP_TOOLCHAIN", "nightly")
+        .env("RUSTUP_TOOLCHAIN", nightly())
         .env("RUSTFLAGS", "-Cpanic=unwind")
         .arg("-Zbuild-std=std,panic_unwind");
 
@@ -1808,7 +1816,7 @@ fn termination_reinit_auto_detect() {
 
     project
         .cargo_cmd
-        .env("RUSTUP_TOOLCHAIN", "nightly")
+        .env("RUSTUP_TOOLCHAIN", nightly())
         .env("RUSTFLAGS", "-Cpanic=unwind")
         .arg("-Zbuild-std=std,panic_unwind");
 

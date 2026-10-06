@@ -48,7 +48,7 @@
 //! // FLAGS: --target=nodejs
 //! ```
 
-use crate::Project;
+use crate::{nightly, Project};
 use anyhow::Result;
 use assert_cmd::Command;
 use regex::Regex;
@@ -226,7 +226,7 @@ fn runtest_panic_unwind() -> Result<()> {
 
     runtest_with_opts(test, None, |command| {
         command
-            .env("RUSTUP_TOOLCHAIN", "nightly")
+            .env("RUSTUP_TOOLCHAIN", nightly())
             .env("RUSTFLAGS", "-C panic=unwind")
             .arg("-Zbuild-std=std,panic_unwind");
     })
@@ -241,7 +241,7 @@ fn runtest_panic_unwind_legacy() -> Result<()> {
 
     runtest_with_opts(test, None, |command| {
         command
-            .env("RUSTUP_TOOLCHAIN", "nightly")
+            .env("RUSTUP_TOOLCHAIN", nightly())
             .env(
                 "RUSTFLAGS",
                 "-C panic=unwind -Cllvm-args=-wasm-use-legacy-eh",
@@ -259,7 +259,7 @@ fn runtest_targets_atomics() -> Result<()> {
 
     runtest_with_opts(test, Some("atomics"), |command| {
         command
-            .env("RUSTUP_TOOLCHAIN", "nightly")
+            .env("RUSTUP_TOOLCHAIN", nightly())
             .env(
                 "RUSTFLAGS",
                 "-Ctarget-feature=+atomics \
@@ -287,7 +287,7 @@ fn no_duplicate_wasm_export_in_node_esm_atomics_debug() -> Result<()> {
     project.dep("wasm-bindgen-futures = { path = '{root}/crates/futures' }");
     project
         .cargo_cmd
-        .env("RUSTUP_TOOLCHAIN", "nightly")
+        .env("RUSTUP_TOOLCHAIN", nightly())
         .env(
             "RUSTFLAGS",
             "-Ctarget-feature=+atomics \
@@ -323,7 +323,7 @@ fn runtest_targets_mvp() -> Result<()> {
 
     runtest_with_opts(test, Some("mvp"), |command| {
         command
-            .env("RUSTUP_TOOLCHAIN", "nightly")
+            .env("RUSTUP_TOOLCHAIN", nightly())
             .env("RUSTFLAGS", "-C target-cpu=mvp")
             .arg("-Zbuild-std=std,panic_abort");
     })

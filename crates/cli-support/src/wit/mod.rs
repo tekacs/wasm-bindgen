@@ -2188,6 +2188,7 @@ mod tests {
             support_start: true,
             linked_modules: false,
             export_adapter_sigs: Default::default(),
+            metadata: HotpatchMetadata::new(),
         };
         cx.discover_main().unwrap();
         cx.start_found
